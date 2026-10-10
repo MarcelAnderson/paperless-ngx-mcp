@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 )
 
 func TestErrResult(t *testing.T) {
@@ -348,5 +349,47 @@ func TestWithNumberHandlerCoercion(t *testing.T) {
 	v2 := req2.GetFloat("page_size", 0)
 	if v2 != 25.0 {
 		t.Errorf("GetFloat(25) = %v, want 25.0", v2)
+	}
+}
+
+func TestOwnershipForwarded(t *testing.T) {
+	perms := `{"view":{"users":[],"groups":[2]},"change":{"users":[],"groups":[2]}}`
+	cases := []struct {
+		name    string
+		method  string
+		path    string
+		handler func(*Client) server.ToolHandlerFunc
+		args    map[string]any
+	}{
+		{"tag_create", "POST", "/api/tags/", handleTagCreate, map[string]any{"name": "x"}},
+		{"tag_update", "PATCH", "/api/tags/1/", handleTagUpdate, map[string]any{"id": float64(1)}},
+		{"correspondent_create", "POST", "/api/correspondents/", handleCorrespondentCreate, map[string]any{"name": "x"}},
+		{"correspondent_update", "PATCH", "/api/correspondents/1/", handleCorrespondentUpdate, map[string]any{"id": float64(1)}},
+		{"document_type_create", "POST", "/api/document_types/", handleDocumentTypeCreate, map[string]any{"name": "x"}},
+		{"document_type_update", "PATCH", "/api/document_types/1/", handleDocumentTypeUpdate, map[string]any{"id": float64(1)}},
+		{"storage_path_create", "POST", "/api/storage_paths/", handleStoragePathCreate, map[string]any{"name": "x", "path": "{{ title }}"}},
+		{"storage_path_update", "PATCH", "/api/storage_paths/1/", handleStoragePathUpdate, map[string]any{"id": float64(1)}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var body map[string]any
+			rh := newRouteHandler(t)
+			rh.Handle(tc.method, tc.path, captureJSONBody(t, &body))
+			client := testClientAndServer(t, rh)
+
+			// Ownership alone must count as a change for the update tools.
+			args := map[string]any{"owner": nil, "set_permissions": perms}
+			for k, v := range tc.args {
+				args[k] = v
+			}
+			assertNotError(t, callTool(t, tc.handler(client), args))
+
+			if owner, ok := body["owner"]; !ok || owner != nil {
+				t.Errorf("owner = %v (present %v), want explicit null", owner, ok)
+			}
+			if _, ok := body["set_permissions"].(map[string]any); !ok {
+				t.Errorf("set_permissions = %v, want object", body["set_permissions"])
+			}
+		})
 	}
 }

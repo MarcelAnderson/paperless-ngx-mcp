@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -29,11 +30,14 @@ func registerBulkTools(srv *server.MCPServer, client *Client) {
 
 	srv.AddTool(
 		mcp.NewTool("bulk_edit_objects",
-			mcp.WithDescription("Bulk permissions/delete for tags, correspondents, document types, or storage paths."),
+			mcp.WithDescription("Bulk permissions/delete for tags, correspondents, document types, or storage paths. set_permissions requires owner and/or permissions. Fails as a whole (403) unless every selected object is owned by the token user or unowned."),
 			mcp.WithString("object_type", mcp.Description("Object type: tags, correspondents, document_types, storage_paths"), mcp.Required()),
 			mcp.WithString("objects", mcp.Description("JSON array of object IDs"), mcp.Required()),
 			mcp.WithString("operation", mcp.Description("Operation: set_permissions, delete"), mcp.Required()),
-			mcp.WithString("parameters", mcp.Description("JSON object with operation-specific parameters")),
+			withNullableNumber("owner", mcp.Description("set_permissions: new owner user ID, null to remove the owner")),
+			mcp.WithString("permissions", mcp.Description(`set_permissions: JSON object, e.g. {"view":{"users":[],"groups":[2]},"change":{"users":[],"groups":[2]}}. Each users/groups list that is given replaces the current one for that action ([] clears it) unless merge is true; omitted actions and lists stay unchanged. change implies view.`)),
+			mcp.WithBoolean("merge", mcp.Description("set_permissions: merge with existing permissions and only set owner on unowned objects instead of replacing (default: false). Cannot be combined with owner: null.")),
+			mcp.WithString("parameters", mcp.Description("Deprecated: JSON object with owner/permissions/merge; its keys are sent at the top level. Prefer the dedicated parameters.")),
 		),
 		handleBulkEditObjects(client),
 	)
@@ -113,6 +117,10 @@ func handleDocumentSelectionData(client *Client) server.ToolHandlerFunc {
 	}
 }
 
+// bulkObjectPermissionKeys are the set_permissions fields accepted by
+// /api/bulk_edit_objects/ besides objects, object_type and operation.
+var bulkObjectPermissionKeys = map[string]bool{"owner": true, "permissions": true, "merge": true}
+
 func handleBulkEditObjects(client *Client) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		objectType, errRes := getRequiredString(request, "object_type")
@@ -136,8 +144,44 @@ func handleBulkEditObjects(client *Client) server.ToolHandlerFunc {
 			return errResult("objects is required"), nil
 		}
 
-		if err := setJSONField(body, request, "parameters"); err != nil {
+		// Paperless reads owner, permissions and merge from the top level of the
+		// body and silently ignores anything nested, so flatten the legacy
+		// parameters object and let the dedicated arguments override it.
+		if err := setJSONObjectField(body, request, "parameters"); err != nil {
 			return errResult(err.Error()), nil
+		}
+		if legacy, ok := body["parameters"].(map[string]any); ok {
+			delete(body, "parameters")
+			for k, v := range legacy {
+				if !bulkObjectPermissionKeys[k] {
+					return errResult(fmt.Sprintf("unknown key %q in parameters; allowed: owner, permissions, merge", k)), nil
+				}
+				body[k] = v
+			}
+		}
+		setNullableInt(body, request.GetArguments(), request, "owner")
+		if err := setJSONObjectField(body, request, "permissions"); err != nil {
+			return errResult(err.Error()), nil
+		}
+		if _, ok := request.GetArguments()["merge"]; ok {
+			body["merge"] = request.GetBool("merge", false)
+		}
+
+		// Without owner or permissions Paperless performs no change yet still
+		// answers OK, so reject the no-op instead of reporting success. With
+		// merge, Paperless also skips a null owner.
+		if operation == "set_permissions" {
+			owner, hasOwner := body["owner"]
+			_, hasPerms := body["permissions"]
+			if hasOwner && owner == nil && body["merge"] == true {
+				if !hasPerms {
+					return errResult("owner: null has no effect with merge: true; omit merge to remove the owner"), nil
+				}
+				return errResult("owner: null is ignored with merge: true; send it without merge in a separate call"), nil
+			}
+			if !hasOwner && !hasPerms {
+				return errResult("set_permissions requires owner and/or permissions"), nil
+			}
 		}
 
 		// This endpoint mutates metadata objects without going through their

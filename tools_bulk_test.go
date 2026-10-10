@@ -112,3 +112,91 @@ func TestBulkEditObjectsInvalidatesCache(t *testing.T) {
 		t.Fatal("expected tags cache to be invalidated after bulk_edit_objects")
 	}
 }
+
+func TestBulkEditObjectsSetPermissionsTopLevel(t *testing.T) {
+	var body map[string]any
+	rh := newRouteHandler(t)
+	rh.Handle("POST", "/api/bulk_edit_objects/", captureJSONBody(t, &body))
+
+	client := testClientAndServer(t, rh)
+	result := callTool(t, handleBulkEditObjects(client), map[string]any{
+		"object_type": "tags",
+		"objects":     "[1, 2]",
+		"operation":   "set_permissions",
+		"owner":       nil,
+		"permissions": `{"view":{"users":[],"groups":[2]},"change":{"users":[],"groups":[2]}}`,
+		"merge":       false,
+	})
+	assertNotError(t, result)
+
+	if _, ok := body["parameters"]; ok {
+		t.Error("parameters must not be sent nested")
+	}
+	if owner, ok := body["owner"]; !ok || owner != nil {
+		t.Errorf("owner = %v (present %v), want explicit null", owner, ok)
+	}
+	if _, ok := body["permissions"].(map[string]any); !ok {
+		t.Errorf("permissions = %v, want object", body["permissions"])
+	}
+	if body["merge"] != false {
+		t.Errorf("merge = %v, want false", body["merge"])
+	}
+}
+
+func TestBulkEditObjectsFlattensLegacyParameters(t *testing.T) {
+	var body map[string]any
+	rh := newRouteHandler(t)
+	rh.Handle("POST", "/api/bulk_edit_objects/", captureJSONBody(t, &body))
+
+	client := testClientAndServer(t, rh)
+	result := callTool(t, handleBulkEditObjects(client), map[string]any{
+		"object_type": "tags",
+		"objects":     "[1,2,3]",
+		"operation":   "set_permissions",
+		"parameters":  `{"owner": null, "merge": false}`,
+	})
+	assertNotError(t, result)
+
+	if _, ok := body["parameters"]; ok {
+		t.Error("parameters must not be sent nested")
+	}
+	if owner, ok := body["owner"]; !ok || owner != nil {
+		t.Errorf("owner = %v (present %v), want explicit null", owner, ok)
+	}
+}
+
+func TestBulkEditObjectsRejectsNoOpSetPermissions(t *testing.T) {
+	client := NewClient("http://unused", "unused")
+	result := callTool(t, handleBulkEditObjects(client), map[string]any{
+		"object_type": "tags",
+		"objects":     "[1]",
+		"operation":   "set_permissions",
+		"merge":       true,
+	})
+	assertIsError(t, result)
+}
+
+func TestBulkEditObjectsRejectsUnknownParameterKey(t *testing.T) {
+	client := NewClient("http://unused", "unused")
+	result := callTool(t, handleBulkEditObjects(client), map[string]any{
+		"object_type": "tags",
+		"objects":     "[1]",
+		"operation":   "set_permissions",
+		"parameters":  `{"owner": null, "set_permissions": {}}`,
+	})
+	assertIsError(t, result)
+}
+
+func TestBulkEditObjectsRejectsNullOwnerWithMerge(t *testing.T) {
+	client := NewClient("http://unused", "unused")
+	for _, args := range []map[string]any{
+		{"owner": nil, "merge": true},
+		{"owner": nil, "merge": true, "permissions": `{"view":{"groups":[2]}}`},
+		{"parameters": `{"owner": null, "merge": true}`},
+	} {
+		args["object_type"] = "tags"
+		args["objects"] = "[1]"
+		args["operation"] = "set_permissions"
+		assertIsError(t, callTool(t, handleBulkEditObjects(client), args))
+	}
+}

@@ -319,6 +319,42 @@ func setJSONField(body map[string]any, request mcp.CallToolRequest, name string)
 	return nil
 }
 
+// withOwnership adds the owner and set_permissions parameters accepted by
+// create/update tools of owned objects (tags, correspondents, document types,
+// storage paths). Paperless makes the token user the owner on create unless
+// owner is sent explicitly, so null is meaningful here.
+func withOwnership() mcp.ToolOption {
+	return func(t *mcp.Tool) {
+		withNullableNumber("owner", mcp.Description("Owner user ID. null = no owner (visible to every user with the model permission). Omit on create to default to the API token's user."))(t)
+		mcp.WithString("set_permissions", mcp.Description(`JSON object granting object permissions, e.g. {"view":{"users":[],"groups":[2]},"change":{"users":[],"groups":[2]}}. Each users/groups list that is given replaces the current one for that action ([] clears it); omitted actions and lists stay unchanged. change implies view. Changing owner or permissions requires the token user to own the object, the object to be unowned, or a superuser token.`))(t)
+	}
+}
+
+// setOwnership copies owner (nullable) and set_permissions (JSON object)
+// from the request into body when present.
+func setOwnership(body map[string]any, request mcp.CallToolRequest) error {
+	setNullableInt(body, request.GetArguments(), request, "owner")
+	return setJSONObjectField(body, request, "set_permissions")
+}
+
+// setJSONObjectField is like setJSONField but requires a JSON object.
+func setJSONObjectField(body map[string]any, request mcp.CallToolRequest, name string) error {
+	if err := setJSONField(body, request, name); err != nil {
+		return err
+	}
+	if v, ok := body[name]; ok {
+		if _, isObj := v.(map[string]any); !isObj {
+			return fmt.Errorf("%s must be a JSON object", name)
+		}
+	}
+	return nil
+}
+
+// withFullPerms adds the full_perms parameter to read tools of owned objects.
+func withFullPerms() mcp.ToolOption {
+	return mcp.WithBoolean("full_perms", mcp.Description("Include the permissions field (view/change users and groups). Replaces user_can_change in the response."))
+}
+
 // withNumber defines a tool parameter that accepts both integer and string values.
 // MCP clients may send numbers as strings; the handler uses GetFloat/GetInt
 // which handle coercion automatically. Strings are constrained to integer format
@@ -381,6 +417,22 @@ func handleGetByID(client *Client, pathFmt string) server.ToolHandlerFunc {
 		}
 		path := fmt.Sprintf(pathFmt, id)
 		resp, err := client.Get(ctx, path, nil)
+		return doRequest(resp, err, "GET", path)
+	}
+}
+
+// handleOwnedGetByID is like handleGetByID but forwards the full_perms flag
+// so the response includes the object's permissions.
+func handleOwnedGetByID(client *Client, pathFmt string) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		id, errRes := getRequiredInt(request, "id")
+		if errRes != nil {
+			return errRes, nil
+		}
+		params := url.Values{}
+		addBoolParam(params, request, "full_perms", "full_perms")
+		path := fmt.Sprintf(pathFmt, id)
+		resp, err := client.Get(ctx, path, params)
 		return doRequest(resp, err, "GET", path)
 	}
 }

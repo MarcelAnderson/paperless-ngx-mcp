@@ -120,3 +120,46 @@ func TestTagListWithNameFilter(t *testing.T) {
 		t.Errorf("name filter = %q, want invoice", capturedName)
 	}
 }
+
+func TestTagCreateOmitsOwnerByDefault(t *testing.T) {
+	var body map[string]any
+	rh := newRouteHandler(t)
+	rh.Handle("POST", "/api/tags/", captureJSONBody(t, &body))
+
+	client := testClientAndServer(t, rh)
+	assertNotError(t, callTool(t, handleTagCreate(client), map[string]any{"name": "x"}))
+
+	if _, ok := body["owner"]; ok {
+		t.Error("owner must be omitted when not given")
+	}
+}
+
+func TestTagCreateRejectsNonObjectPermissions(t *testing.T) {
+	client := NewClient("http://unused", "unused")
+	result := callTool(t, handleTagCreate(client), map[string]any{
+		"name":            "x",
+		"set_permissions": `[2]`,
+	})
+	assertIsError(t, result)
+}
+
+func TestTagFullPerms(t *testing.T) {
+	var listQuery, getQuery string
+	rh := newRouteHandler(t)
+	rh.Handle("GET", "/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		listQuery = r.URL.Query().Get("full_perms")
+		jsonHandler(t, 200, paginatedResponse([]any{}, 0))(w, r)
+	})
+	rh.Handle("GET", "/api/tags/1/", func(w http.ResponseWriter, r *http.Request) {
+		getQuery = r.URL.Query().Get("full_perms")
+		jsonHandler(t, 200, map[string]any{"id": 1})(w, r)
+	})
+
+	client := testClientAndServer(t, rh)
+	assertNotError(t, callTool(t, handleTagList(client), map[string]any{"full_perms": true}))
+	assertNotError(t, callTool(t, handleOwnedGetByID(client, "/api/tags/%d/"), map[string]any{"id": float64(1), "full_perms": true}))
+
+	if listQuery != "true" || getQuery != "true" {
+		t.Errorf("full_perms list=%q get=%q, want true/true", listQuery, getQuery)
+	}
+}

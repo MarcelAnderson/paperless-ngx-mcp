@@ -75,6 +75,8 @@ Generate an API token in Paperless-ngx under **Settings > Administration > Auth 
 
 Responses are shaped to stay compact for MCP clients: document `content` in list/search results is truncated to a snippet — default 500 bytes, adjustable per call with `content_snippet_bytes` (0 disables); `full_content: true` opts out and `document_get` returns full text — document `notes` in list/search results are replaced with a `notes_count` field (`include_notes: true` keeps them; `document_note_list` returns full notes), the unbounded `all` ID array is stripped from paginated lists (`include_all_ids: true` on `document_list` re-includes it), `task_list` is paginated client-side, `log_get` returns only the last `tail` lines (default 100), `document_selection_data` omits zero-count objects, `user_list` omits `inherited_permissions` unless `include_permissions: true`, and `profile_get` redacts the API auth token.
 
+Ownership: Paperless-ngx makes the API token's user the owner of new tags, correspondents, document types, and storage paths unless `owner` is sent, which hides them from other users. Their `*_create`/`*_update` tools accept `owner` (`null` = no owner) and `set_permissions`; their `*_list`/`*_get` tools accept `full_perms: true` to return the `permissions` field. `bulk_edit_objects` takes `owner`, `permissions`, and `merge` for `set_permissions` on existing objects.
+
 ### Documents
 `document_list`, `document_get`, `document_update`, `document_delete`, `document_upload`, `document_download`, `document_metadata`, `document_suggestions`, `document_next_asn`, `document_share_links`, `document_history`, `document_email`
 
