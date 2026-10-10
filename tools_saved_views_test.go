@@ -132,3 +132,16 @@ func TestSavedViewFullPerms(t *testing.T) {
 		t.Errorf("full_perms list=%q get=%q, want true/true", listQuery, getQuery)
 	}
 }
+
+func TestSavedViewUpdateOwnerNullString(t *testing.T) {
+	var body map[string]any
+	rh := newRouteHandler(t)
+	rh.Handle("PATCH", "/api/saved_views/4/", captureJSONBody(t, &body))
+
+	client := testClientAndServer(t, rh)
+	assertNotError(t, callTool(t, handleSavedViewUpdate(client), map[string]any{"id": float64(4), "owner": "null"}))
+
+	if v, ok := body["owner"]; !ok || v != nil {
+		t.Errorf("owner = %v (present %v), want JSON null", v, ok)
+	}
+}

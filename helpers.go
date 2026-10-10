@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -290,18 +291,34 @@ func getRequiredString(request mcp.CallToolRequest, name string) (string, *mcp.C
 
 // setNullableInt sets a nullable integer field in a body map for PATCH requests.
 // If the argument is present and nil, sets the field to nil (clears it).
-// If the argument is present and a number, sets the field to the int value.
+// Some MCP clients send null as the string "null" (or ""), which is treated
+// the same way. Numbers and integer strings set the field to the int value;
+// any other string is an error rather than being coerced to 0.
 // If the argument is not present, does nothing.
-func setNullableInt(body map[string]any, args map[string]any, request mcp.CallToolRequest, name string) {
+func setNullableInt(body map[string]any, args map[string]any, request mcp.CallToolRequest, name string) error {
 	val, ok := args[name]
 	if !ok {
-		return
+		return nil
+	}
+	if str, isStr := val.(string); isStr {
+		str = strings.TrimSpace(str)
+		if str == "" || strings.EqualFold(str, "null") {
+			body[name] = nil
+			return nil
+		}
+		n, err := strconv.Atoi(str)
+		if err != nil {
+			return fmt.Errorf("%s must be an integer or null, got %q", name, val)
+		}
+		body[name] = n
+		return nil
 	}
 	if val == nil {
 		body[name] = nil
 	} else {
 		body[name] = int(request.GetFloat(name, 0))
 	}
+	return nil
 }
 
 // setJSONField parses a JSON string parameter and sets it in a body map.
@@ -333,7 +350,9 @@ func withOwnership() mcp.ToolOption {
 // setOwnership copies owner (nullable) and set_permissions (JSON object)
 // from the request into body when present.
 func setOwnership(body map[string]any, request mcp.CallToolRequest) error {
-	setNullableInt(body, request.GetArguments(), request, "owner")
+	if err := setNullableInt(body, request.GetArguments(), request, "owner"); err != nil {
+		return err
+	}
 	return setJSONObjectField(body, request, "set_permissions")
 }
 

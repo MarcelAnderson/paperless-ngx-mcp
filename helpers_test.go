@@ -393,3 +393,51 @@ func TestOwnershipForwarded(t *testing.T) {
 		})
 	}
 }
+
+func TestSetNullableInt(t *testing.T) {
+	tests := []struct {
+		name    string
+		val     any
+		want    any
+		wantErr bool
+	}{
+		{"json null", nil, nil, false},
+		{"string null", "null", nil, false},
+		{"string NULL padded", " NULL ", nil, false},
+		{"empty string", "", nil, false},
+		{"number", float64(5), 5, false},
+		{"integer string", "7", 7, false},
+		{"non-numeric string", "abc", nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := map[string]any{"owner": tt.val}
+			req := mcp.CallToolRequest{}
+			req.Params.Arguments = args
+			body := map[string]any{}
+			err := setNullableInt(body, args, req, "owner")
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				if _, ok := body["owner"]; ok {
+					t.Errorf("owner set to %v on error", body["owner"])
+				}
+				return
+			}
+			if v, ok := body["owner"]; !ok || v != tt.want {
+				t.Errorf("owner = %v (present %v), want %v", v, ok, tt.want)
+			}
+		})
+	}
+}
+
+func TestSetNullableIntAbsent(t *testing.T) {
+	body := map[string]any{}
+	if err := setNullableInt(body, map[string]any{}, mcp.CallToolRequest{}, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := body["owner"]; ok {
+		t.Error("owner must stay absent")
+	}
+}
