@@ -322,12 +322,12 @@ Removes downloaded document files. With no arguments, removes all files in the i
 
 #### Ownership and Permissions
 
-Paperless-ngx makes the API token's user the owner of every object created without an explicit `owner`, which hides it from other users. The create and update tools for tags, correspondents, document types, and storage paths therefore accept:
+Paperless-ngx makes the API token's user the owner of every object created without an explicit `owner`, which hides it from other users. The create and update tools for tags, correspondents, document types, storage paths, and saved views therefore accept:
 
 - `owner` — user ID, or `null` for no owner (visible to every user with the model permission)
 - `set_permissions` — JSON object granting `view`/`change` to `users` and `groups`. Each `users`/`groups` list that is given replaces the current one for that action (`[]` clears it); omitted actions and lists stay unchanged. `change` implies `view`.
 
-Paperless-ngx only lets the owner (anyone, for unowned objects) or a superuser change `owner` or permissions; change rights granted through a group allow editing other fields but return 403 for these. `bulk_edit_objects` is rejected as a whole unless every selected object is owned by the token user or unowned.
+Paperless-ngx only lets the owner (anyone, for unowned objects) or a superuser change `owner` or permissions; change rights granted through a group allow editing other fields but return 403 for these. `bulk_edit_objects` is rejected as a whole unless every selected object is owned by the token user or unowned. Paperless-ngx's `bulk_edit_objects` does not accept saved views (`"saved_views" is not a valid choice`), so their owner and permissions are changed one at a time with `saved_view_update`.
 
 The matching list and get tools accept `full_perms: true`, which passes `full_perms=true` to Paperless so responses include the `permissions` field (replacing `user_can_change`). Custom fields have no owner or object permissions in Paperless-ngx, so `custom_field_*` tools do not take these parameters.
 

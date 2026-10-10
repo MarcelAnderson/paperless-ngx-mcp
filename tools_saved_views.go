@@ -12,18 +12,20 @@ func registerSavedViewTools(srv *server.MCPServer, client *Client) {
 	srv.AddTool(
 		mcp.NewTool("saved_view_list",
 			mcp.WithDescription("List saved views."),
+			withFullPerms(),
 			withNumber("page", mcp.Description("Page number (default: 1)")),
 			withNumber("page_size", mcp.Description("Results per page (default: 25)")),
 		),
-		handlePaginatedList(client, "/api/saved_views/"),
+		handleOwnedPaginatedList(client, "/api/saved_views/"),
 	)
 
 	srv.AddTool(
 		mcp.NewTool("saved_view_get",
 			mcp.WithDescription("Get saved view details."),
 			withNumber("id", mcp.Description("Saved view ID"), mcp.Required()),
+			withFullPerms(),
 		),
-		handleGetByID(client, "/api/saved_views/%d/"),
+		handleOwnedGetByID(client, "/api/saved_views/%d/"),
 	)
 
 	srv.AddTool(
@@ -35,6 +37,7 @@ func registerSavedViewTools(srv *server.MCPServer, client *Client) {
 			mcp.WithString("sort_field", mcp.Description("Sort field")),
 			mcp.WithBoolean("sort_reverse", mcp.Description("Reverse sort order")),
 			mcp.WithString("filter_rules", mcp.Description("JSON array of filter rule objects")),
+			withOwnership(),
 		),
 		handleSavedViewCreate(client),
 	)
@@ -49,6 +52,7 @@ func registerSavedViewTools(srv *server.MCPServer, client *Client) {
 			mcp.WithString("sort_field", mcp.Description("Sort field")),
 			mcp.WithBoolean("sort_reverse", mcp.Description("Reverse sort order")),
 			mcp.WithString("filter_rules", mcp.Description("JSON array of filter rule objects")),
+			withOwnership(),
 		),
 		handleSavedViewUpdate(client),
 	)
@@ -87,6 +91,9 @@ func handleSavedViewCreate(client *Client) server.ToolHandlerFunc {
 		if err := setJSONField(body, request, "filter_rules"); err != nil {
 			return errResult(err.Error()), nil
 		}
+		if err := setOwnership(body, request); err != nil {
+			return errResult(err.Error()), nil
+		}
 
 		path := "/api/saved_views/"
 		resp, err := client.Post(ctx, path, body)
@@ -120,6 +127,9 @@ func handleSavedViewUpdate(client *Client) server.ToolHandlerFunc {
 			body["sort_reverse"] = request.GetBool("sort_reverse", false)
 		}
 		if err := setJSONField(body, request, "filter_rules"); err != nil {
+			return errResult(err.Error()), nil
+		}
+		if err := setOwnership(body, request); err != nil {
 			return errResult(err.Error()), nil
 		}
 

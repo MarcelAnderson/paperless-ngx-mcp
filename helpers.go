@@ -321,7 +321,7 @@ func setJSONField(body map[string]any, request mcp.CallToolRequest, name string)
 
 // withOwnership adds the owner and set_permissions parameters accepted by
 // create/update tools of owned objects (tags, correspondents, document types,
-// storage paths). Paperless makes the token user the owner on create unless
+// storage paths, saved views). Paperless makes the token user the owner on create unless
 // owner is sent explicitly, so null is meaningful here.
 func withOwnership() mcp.ToolOption {
 	return func(t *mcp.Tool) {
@@ -402,6 +402,18 @@ func handlePaginatedList(client *Client, path string) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		params := url.Values{}
 		addPaginationParams(params, request)
+		resp, err := client.Get(ctx, path, params)
+		return doRequestJSON(resp, err, "GET", path, stripAllIDs)
+	}
+}
+
+// handleOwnedPaginatedList is like handlePaginatedList but forwards the
+// full_perms flag so the results include each object's permissions.
+func handleOwnedPaginatedList(client *Client, path string) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		params := url.Values{}
+		addPaginationParams(params, request)
+		addBoolParam(params, request, "full_perms", "full_perms")
 		resp, err := client.Get(ctx, path, params)
 		return doRequestJSON(resp, err, "GET", path, stripAllIDs)
 	}
