@@ -35,9 +35,9 @@ func registerBulkTools(srv *server.MCPServer, client *Client) {
 			mcp.WithString("objects", mcp.Description("JSON array of object IDs"), mcp.Required()),
 			mcp.WithString("operation", mcp.Description("Operation: set_permissions, delete"), mcp.Required()),
 			withNullableNumber("owner", mcp.Description("set_permissions: new owner user ID, null to remove the owner")),
-			mcp.WithString("permissions", mcp.Description(`set_permissions: JSON object, e.g. {"view":{"users":[],"groups":[2]},"change":{"users":[],"groups":[2]}}. Each users/groups list that is given replaces the current one for that action ([] clears it) unless merge is true; omitted actions and lists stay unchanged. change implies view.`)),
+			withJSONObject("permissions", mcp.Description(`set_permissions: JSON object, e.g. {"view":{"users":[],"groups":[2]},"change":{"users":[],"groups":[2]}}. Each users/groups list that is given replaces the current one for that action ([] clears it) unless merge is true; omitted actions and lists stay unchanged. change implies view.`)),
 			mcp.WithBoolean("merge", mcp.Description("set_permissions: merge with existing permissions and only set owner on unowned objects instead of replacing (default: false). Cannot be combined with owner: null.")),
-			mcp.WithString("parameters", mcp.Description("Deprecated: JSON object with owner/permissions/merge; its keys are sent at the top level. Prefer the dedicated parameters.")),
+			withJSONObject("parameters", mcp.Description("Deprecated: JSON object with owner/permissions/merge; its keys are sent at the top level. Prefer the dedicated parameters.")),
 		),
 		handleBulkEditObjects(client),
 	)

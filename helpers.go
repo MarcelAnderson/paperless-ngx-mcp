@@ -343,7 +343,7 @@ func setJSONField(body map[string]any, request mcp.CallToolRequest, name string)
 func withOwnership() mcp.ToolOption {
 	return func(t *mcp.Tool) {
 		withNullableNumber("owner", mcp.Description("Owner user ID. null = no owner (visible to every user with the model permission). Omit on create to default to the API token's user."))(t)
-		mcp.WithString("set_permissions", mcp.Description(`JSON object granting object permissions, e.g. {"view":{"users":[],"groups":[2]},"change":{"users":[],"groups":[2]}}. Each users/groups list that is given replaces the current one for that action ([] clears it); omitted actions and lists stay unchanged. change implies view. Changing owner or permissions requires the token user to own the object, the object to be unowned, or a superuser token.`))(t)
+		withJSONObject("set_permissions", mcp.Description(`JSON object granting object permissions, e.g. {"view":{"users":[],"groups":[2]},"change":{"users":[],"groups":[2]}}. Each users/groups list that is given replaces the current one for that action ([] clears it); omitted actions and lists stay unchanged. change implies view. Changing owner or permissions requires the token user to own the object, the object to be unowned, or a superuser token.`))(t)
 	}
 }
 
@@ -356,16 +356,32 @@ func setOwnership(body map[string]any, request mcp.CallToolRequest) error {
 	return setJSONObjectField(body, request, "set_permissions")
 }
 
-// setJSONObjectField is like setJSONField but requires a JSON object.
+// setJSONObjectField sets a JSON object parameter in a body map. MCP clients
+// send it either as an object or as a JSON-encoded string, so both are
+// accepted; null counts as absent. Anything else, including "" and an empty
+// object, is an error instead of being dropped: Paperless treats an empty
+// permissions object as "change nothing" and would still report success.
 func setJSONObjectField(body map[string]any, request mcp.CallToolRequest, name string) error {
-	if err := setJSONField(body, request, name); err != nil {
-		return err
-	}
-	if v, ok := body[name]; ok {
-		if _, isObj := v.(map[string]any); !isObj {
-			return fmt.Errorf("%s must be a JSON object", name)
+	var obj map[string]any
+	switch v := request.GetArguments()[name].(type) {
+	case nil:
+		return nil
+	case map[string]any:
+		obj = v
+	case string:
+		if err := json.Unmarshal([]byte(v), &obj); err != nil {
+			return fmt.Errorf("%s must be a JSON object: %w", name, err)
 		}
+		if obj == nil {
+			return fmt.Errorf("%s must be a JSON object, got %q", name, v)
+		}
+	default:
+		return fmt.Errorf("%s must be a JSON object, got %v", name, v)
 	}
+	if len(obj) == 0 {
+		return fmt.Errorf("%s must not be an empty object", name)
+	}
+	body[name] = obj
 	return nil
 }
 
@@ -392,6 +408,15 @@ func withNullableNumber(name string, opts ...mcp.PropertyOption) mcp.ToolOption 
 	allOpts := append([]mcp.PropertyOption{func(schema map[string]any) {
 		schema["type"] = []string{"integer", "string", "null"}
 		schema["pattern"] = `^-?\d+$`
+	}}, opts...)
+	return mcp.WithAny(name, allOpts...)
+}
+
+// withJSONObject defines a tool parameter that takes a JSON object, either as
+// an object or as a JSON-encoded string. See setJSONObjectField.
+func withJSONObject(name string, opts ...mcp.PropertyOption) mcp.ToolOption {
+	allOpts := append([]mcp.PropertyOption{func(schema map[string]any) {
+		schema["type"] = []string{"object", "string"}
 	}}, opts...)
 	return mcp.WithAny(name, allOpts...)
 }

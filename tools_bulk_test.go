@@ -143,6 +143,70 @@ func TestBulkEditObjectsSetPermissionsTopLevel(t *testing.T) {
 	}
 }
 
+// permissions sent as an object must reach Paperless next to owner instead
+// of being dropped while the owner change still reports OK.
+func TestBulkEditObjectsObjectPermissions(t *testing.T) {
+	var body map[string]any
+	rh := newRouteHandler(t)
+	rh.Handle("POST", "/api/bulk_edit_objects/", captureJSONBody(t, &body))
+
+	client := testClientAndServer(t, rh)
+	result := callTool(t, handleBulkEditObjects(client), map[string]any{
+		"object_type": "tags",
+		"objects":     "[1]",
+		"operation":   "set_permissions",
+		"owner":       float64(3),
+		"permissions": map[string]any{"view": map[string]any{"groups": []any{float64(2)}}},
+	})
+	assertNotError(t, result)
+
+	if body["owner"] != float64(3) {
+		t.Errorf("owner = %v, want 3", body["owner"])
+	}
+	if _, ok := body["permissions"].(map[string]any); !ok {
+		t.Errorf("permissions = %v, want object", body["permissions"])
+	}
+}
+
+func TestBulkEditObjectsObjectParameters(t *testing.T) {
+	var body map[string]any
+	rh := newRouteHandler(t)
+	rh.Handle("POST", "/api/bulk_edit_objects/", captureJSONBody(t, &body))
+
+	client := testClientAndServer(t, rh)
+	result := callTool(t, handleBulkEditObjects(client), map[string]any{
+		"object_type": "tags",
+		"objects":     "[1]",
+		"operation":   "set_permissions",
+		"parameters":  map[string]any{"owner": nil},
+	})
+	assertNotError(t, result)
+
+	if owner, ok := body["owner"]; !ok || owner != nil {
+		t.Errorf("owner = %v (present %v), want explicit null", owner, ok)
+	}
+}
+
+func TestBulkEditObjectsRejectsNonObjectPermissions(t *testing.T) {
+	client := NewClient("http://unused", "unused")
+	for name, perms := range map[string]any{
+		"array":        []any{float64(1)},
+		"array string": "[1]",
+		"empty object": map[string]any{},
+		"empty string": "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			assertIsError(t, callTool(t, handleBulkEditObjects(client), map[string]any{
+				"object_type": "tags",
+				"objects":     "[1]",
+				"operation":   "set_permissions",
+				"owner":       float64(3),
+				"permissions": perms,
+			}))
+		})
+	}
+}
+
 func TestBulkEditObjectsFlattensLegacyParameters(t *testing.T) {
 	var body map[string]any
 	rh := newRouteHandler(t)

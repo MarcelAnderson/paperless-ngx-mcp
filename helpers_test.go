@@ -353,7 +353,14 @@ func TestWithNumberHandlerCoercion(t *testing.T) {
 }
 
 func TestOwnershipForwarded(t *testing.T) {
-	perms := `{"view":{"users":[],"groups":[2]},"change":{"users":[],"groups":[2]}}`
+	// MCP clients send set_permissions as a JSON-encoded string or as an object.
+	permsForms := map[string]any{
+		"string": `{"view":{"users":[],"groups":[2]},"change":{"users":[],"groups":[2]}}`,
+		"object": map[string]any{
+			"view":   map[string]any{"users": []any{}, "groups": []any{float64(2)}},
+			"change": map[string]any{"users": []any{}, "groups": []any{float64(2)}},
+		},
+	}
 	cases := []struct {
 		name    string
 		method  string
@@ -371,26 +378,122 @@ func TestOwnershipForwarded(t *testing.T) {
 		{"storage_path_update", "PATCH", "/api/storage_paths/1/", handleStoragePathUpdate, map[string]any{"id": float64(1)}},
 	}
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			var body map[string]any
-			rh := newRouteHandler(t)
-			rh.Handle(tc.method, tc.path, captureJSONBody(t, &body))
-			client := testClientAndServer(t, rh)
+		for form, perms := range permsForms {
+			t.Run(tc.name+"/"+form, func(t *testing.T) {
+				var body map[string]any
+				rh := newRouteHandler(t)
+				rh.Handle(tc.method, tc.path, captureJSONBody(t, &body))
+				client := testClientAndServer(t, rh)
 
-			// Ownership alone must count as a change for the update tools.
-			args := map[string]any{"owner": nil, "set_permissions": perms}
-			for k, v := range tc.args {
-				args[k] = v
+				// Ownership alone must count as a change for the update tools.
+				args := map[string]any{"owner": nil, "set_permissions": perms}
+				for k, v := range tc.args {
+					args[k] = v
+				}
+				assertNotError(t, callTool(t, tc.handler(client), args))
+
+				if owner, ok := body["owner"]; !ok || owner != nil {
+					t.Errorf("owner = %v (present %v), want explicit null", owner, ok)
+				}
+				sp, ok := body["set_permissions"].(map[string]any)
+				if !ok {
+					t.Fatalf("set_permissions = %v, want object", body["set_permissions"])
+				}
+				if _, ok := sp["change"].(map[string]any); !ok {
+					t.Errorf("set_permissions.change = %v, want object", sp["change"])
+				}
+			})
+		}
+	}
+}
+
+// Only set_permissions given: without it the update tools would report
+// "no fields to update", and create would silently skip the permissions.
+func TestOwnershipObjectPermissionsAlone(t *testing.T) {
+	var body map[string]any
+	rh := newRouteHandler(t)
+	rh.Handle("PATCH", "/api/tags/1/", captureJSONBody(t, &body))
+	client := testClientAndServer(t, rh)
+
+	assertNotError(t, callTool(t, handleTagUpdate(client), map[string]any{
+		"id":              float64(1),
+		"set_permissions": map[string]any{"view": map[string]any{"groups": []any{float64(2)}}},
+	}))
+	if _, ok := body["set_permissions"].(map[string]any); !ok {
+		t.Errorf("set_permissions = %v, want object", body["set_permissions"])
+	}
+}
+
+func TestSetJSONObjectField(t *testing.T) {
+	tests := []struct {
+		name    string
+		val     any
+		wantErr bool
+	}{
+		{"object", map[string]any{"view": map[string]any{}}, false},
+		{"json string", `{"view":{}}`, false},
+		{"empty string", "", true},
+		{"empty object", map[string]any{}, true},
+		{"empty object string", "{}", true},
+		{"null string", "null", true},
+		{"array string", "[2]", true},
+		{"array", []any{float64(2)}, true},
+		{"number", float64(2), true},
+		{"bool", true, true},
+		{"invalid json", "{view", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := map[string]any{}
+			err := setJSONObjectField(body, makeRequest(map[string]any{"set_permissions": tt.val}), "set_permissions")
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, body = %v", body)
+				}
+				if _, ok := body["set_permissions"]; ok {
+					t.Error("field must not be set on error")
+				}
+				return
 			}
-			assertNotError(t, callTool(t, tc.handler(client), args))
-
-			if owner, ok := body["owner"]; !ok || owner != nil {
-				t.Errorf("owner = %v (present %v), want explicit null", owner, ok)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
 			}
 			if _, ok := body["set_permissions"].(map[string]any); !ok {
 				t.Errorf("set_permissions = %v, want object", body["set_permissions"])
 			}
 		})
+	}
+}
+
+func TestSetJSONObjectFieldAbsentOrNull(t *testing.T) {
+	for name, args := range map[string]map[string]any{
+		"absent": {},
+		"null":   {"set_permissions": nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := map[string]any{}
+			if err := setJSONObjectField(body, makeRequest(args), "set_permissions"); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if _, ok := body["set_permissions"]; ok {
+				t.Error("set_permissions must be omitted")
+			}
+		})
+	}
+}
+
+func TestWithJSONObjectSchema(t *testing.T) {
+	tool := mcp.NewTool("test_tool", withOwnership())
+	prop, ok := tool.InputSchema.Properties["set_permissions"].(map[string]any)
+	if !ok {
+		t.Fatal("expected set_permissions property")
+	}
+	types, ok := prop["type"].([]string)
+	if !ok {
+		t.Fatalf("expected type to be []string, got %T", prop["type"])
+	}
+	if len(types) != 2 || types[0] != "object" || types[1] != "string" {
+		t.Errorf("type = %v, want [object string]", types)
 	}
 }
 
