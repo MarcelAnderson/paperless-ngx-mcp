@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -117,9 +118,43 @@ func handleDocumentSelectionData(client *Client) server.ToolHandlerFunc {
 	}
 }
 
-// bulkObjectPermissionKeys are the set_permissions fields accepted by
-// /api/bulk_edit_objects/ besides objects, object_type and operation.
-var bulkObjectPermissionKeys = map[string]bool{"owner": true, "permissions": true, "merge": true}
+// setLegacyBulkObjectParameters copies owner, permissions and merge from the
+// legacy parameters object into body. The values go through the same checks
+// as the dedicated arguments, so a string "null" or "true" can't reach
+// Paperless as a string and a null or non-object permissions can't pass the
+// no-op guard. Unknown keys are an error.
+func setLegacyBulkObjectParameters(body map[string]any, legacy map[string]any) error {
+	for k, v := range legacy {
+		name := "parameters." + k
+		switch k {
+		case "owner":
+			owner, err := parseNullableInt(name, v)
+			if err != nil {
+				return err
+			}
+			body[k] = owner
+		case "permissions":
+			perms, err := parseJSONObject(name, v)
+			if err != nil {
+				return err
+			}
+			if perms == nil {
+				return fmt.Errorf("%s must be a JSON object, got null", name)
+			}
+			body[k] = perms
+		case "merge":
+			merge, ok := v.(bool)
+			if !ok {
+				got, _ := json.Marshal(v)
+				return fmt.Errorf("%s must be true or false, got %s", name, got)
+			}
+			body[k] = merge
+		default:
+			return fmt.Errorf("unknown key %q in parameters; allowed: owner, permissions, merge", k)
+		}
+	}
+	return nil
+}
 
 func handleBulkEditObjects(client *Client) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -152,11 +187,8 @@ func handleBulkEditObjects(client *Client) server.ToolHandlerFunc {
 		}
 		if legacy, ok := body["parameters"].(map[string]any); ok {
 			delete(body, "parameters")
-			for k, v := range legacy {
-				if !bulkObjectPermissionKeys[k] {
-					return errResult(fmt.Sprintf("unknown key %q in parameters; allowed: owner, permissions, merge", k)), nil
-				}
-				body[k] = v
+			if err := setLegacyBulkObjectParameters(body, legacy); err != nil {
+				return errResult(err.Error()), nil
 			}
 		}
 		if err := setNullableInt(body, request.GetArguments(), "owner"); err != nil {

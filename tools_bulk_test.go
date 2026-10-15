@@ -229,6 +229,84 @@ func TestBulkEditObjectsFlattensLegacyParameters(t *testing.T) {
 	}
 }
 
+// Legacy parameters values must go through the same checks as the
+// dedicated arguments instead of being copied to the body as they are.
+func TestBulkEditObjectsNormalisesLegacyParameters(t *testing.T) {
+	var body map[string]any
+	rh := newRouteHandler(t)
+	rh.Handle("POST", "/api/bulk_edit_objects/", captureJSONBody(t, &body))
+
+	client := testClientAndServer(t, rh)
+	result := callTool(t, handleBulkEditObjects(client), map[string]any{
+		"object_type": "tags",
+		"objects":     "[1]",
+		"operation":   "set_permissions",
+		"parameters":  `{"owner": "7", "permissions": "{\"view\":{\"groups\":[2]}}", "merge": true}`,
+	})
+	assertNotError(t, result)
+
+	if body["owner"] != float64(7) {
+		t.Errorf("owner = %#v, want 7", body["owner"])
+	}
+	if _, ok := body["permissions"].(map[string]any); !ok {
+		t.Errorf("permissions = %#v, want object", body["permissions"])
+	}
+	if body["merge"] != true {
+		t.Errorf("merge = %#v, want true", body["merge"])
+	}
+}
+
+func TestBulkEditObjectsRejectsInvalidLegacyParameters(t *testing.T) {
+	client := NewClient("http://unused", "unused")
+	for name, params := range map[string]string{
+		// The string "null" with merge "true" used to skip the null-owner guard
+		// and reach Paperless as owner: "null".
+		"string merge":       `{"owner": "null", "merge": "true"}`,
+		"null owner + merge": `{"owner": "null", "merge": true}`,
+		"array permissions":  `{"permissions": [1]}`,
+		"null permissions":   `{"permissions": null}`,
+		"empty permissions":  `{"permissions": {}}`,
+		"fraction owner":     `{"owner": 7.9}`,
+		"bool owner":         `{"owner": true}`,
+		"empty string owner": `{"owner": ""}`,
+		"number merge":       `{"owner": 3, "merge": 1}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			assertIsError(t, callTool(t, handleBulkEditObjects(client), map[string]any{
+				"object_type": "tags",
+				"objects":     "[1]",
+				"operation":   "set_permissions",
+				"parameters":  params,
+			}))
+		})
+	}
+}
+
+// The legacy string "null" for owner becomes JSON null, like the dedicated
+// argument, and dedicated arguments still override legacy values.
+func TestBulkEditObjectsLegacyNullOwnerAndOverride(t *testing.T) {
+	var body map[string]any
+	rh := newRouteHandler(t)
+	rh.Handle("POST", "/api/bulk_edit_objects/", captureJSONBody(t, &body))
+
+	client := testClientAndServer(t, rh)
+	assertNotError(t, callTool(t, handleBulkEditObjects(client), map[string]any{
+		"object_type": "tags",
+		"objects":     "[1]",
+		"operation":   "set_permissions",
+		"parameters":  `{"owner": "null", "permissions": {"view": {"groups": [2]}}}`,
+		"permissions": map[string]any{"change": map[string]any{"groups": []any{float64(3)}}},
+	}))
+
+	if owner, ok := body["owner"]; !ok || owner != nil {
+		t.Errorf("owner = %#v (present %v), want explicit null", owner, ok)
+	}
+	perms, _ := body["permissions"].(map[string]any)
+	if _, ok := perms["change"]; !ok {
+		t.Errorf("permissions = %#v, want the dedicated argument", body["permissions"])
+	}
+}
+
 func TestBulkEditObjectsRejectsNoOpSetPermissions(t *testing.T) {
 	client := NewClient("http://unused", "unused")
 	result := callTool(t, handleBulkEditObjects(client), map[string]any{

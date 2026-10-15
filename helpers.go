@@ -378,31 +378,43 @@ func setOwnership(body map[string]any, request mcp.CallToolRequest) error {
 
 // setJSONObjectField sets a JSON object parameter in a body map. MCP clients
 // send it either as an object or as a JSON-encoded string, so both are
-// accepted; null counts as absent. Anything else, including "" and an empty
-// object, is an error instead of being dropped: Paperless treats an empty
-// permissions object as "change nothing" and would still report success.
+// accepted; null counts as absent. See parseJSONObject for what is refused.
 func setJSONObjectField(body map[string]any, request mcp.CallToolRequest, name string) error {
+	obj, err := parseJSONObject(name, request.GetArguments()[name])
+	if err != nil || obj == nil {
+		return err
+	}
+	body[name] = obj
+	return nil
+}
+
+// parseJSONObject converts a raw argument into a JSON object: an object is
+// taken as is and a string is parsed as JSON. nil returns (nil, nil) so the
+// caller decides whether null is allowed. Anything else, including "" and an
+// empty object, is an error instead of being dropped: Paperless treats an
+// empty permissions object as "change nothing" and would still report
+// success.
+func parseJSONObject(name string, val any) (map[string]any, error) {
 	var obj map[string]any
-	switch v := request.GetArguments()[name].(type) {
+	switch v := val.(type) {
 	case nil:
-		return nil
+		return nil, nil
 	case map[string]any:
 		obj = v
 	case string:
 		if err := json.Unmarshal([]byte(v), &obj); err != nil {
-			return fmt.Errorf("%s must be a JSON object: %w", name, err)
+			return nil, fmt.Errorf("%s must be a JSON object: %w", name, err)
 		}
 		if obj == nil {
-			return fmt.Errorf("%s must be a JSON object, got %q", name, v)
+			return nil, fmt.Errorf("%s must be a JSON object, got %q", name, v)
 		}
 	default:
-		return fmt.Errorf("%s must be a JSON object, got %v", name, v)
+		return nil, fmt.Errorf("%s must be a JSON object, got %v", name, v)
 	}
 	if len(obj) == 0 {
-		return fmt.Errorf("%s must not be an empty object", name)
+		return nil, fmt.Errorf("%s must not be an empty object", name)
 	}
-	body[name] = obj
-	return nil
+	return obj, nil
 }
 
 // withFullPerms adds the full_perms parameter to read tools of owned objects.
