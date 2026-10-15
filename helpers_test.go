@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -336,6 +337,21 @@ func TestWithNullableNumberSchema(t *testing.T) {
 	}
 }
 
+// Clients validate string arguments against the schema pattern before the
+// handler runs, so the pattern must accept exactly the strings
+// parseNullableInt accepts.
+func TestNullableNumberPatternMatchesHandler(t *testing.T) {
+	tool := mcp.NewTool("test_tool", withNullableNumber("owner"))
+	pattern := tool.InputSchema.Properties["owner"].(map[string]any)["pattern"].(string)
+	re := regexp.MustCompile(pattern)
+	for _, s := range []string{"7", "-3", "0", "null", "", " ", "NULL", "Null", " 7 ", "7.9", "abc", "null ", "1e3", "+7", "007", "-0"} {
+		_, err := parseNullableInt("owner", s)
+		if re.MatchString(s) != (err == nil) {
+			t.Errorf("%q: pattern match = %v, handler accepts = %v", s, re.MatchString(s), err == nil)
+		}
+	}
+}
+
 func TestWithNumberHandlerCoercion(t *testing.T) {
 	// Verify GetFloat coerces string "50" to 50.0
 	req := makeRequest(map[string]any{"page_size": "50"})
@@ -506,8 +522,11 @@ func TestSetNullableInt(t *testing.T) {
 	}{
 		{"json null", nil, nil, false},
 		{"string null", "null", nil, false},
-		{"string NULL padded", " NULL ", nil, false},
-		{"empty string", "", nil, false},
+		{"empty string", "", nil, true},
+		{"blank string", "  ", nil, true},
+		{"string NULL", "NULL", nil, true},
+		{"padded integer string", " 7 ", nil, true},
+		{"plus sign", "+7", nil, true},
 		{"number", float64(5), 5, false},
 		{"integer string", "7", 7, false},
 		{"non-numeric string", "abc", nil, true},

@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 	"unicode/utf8"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -308,11 +307,14 @@ func setNullableInt(body map[string]any, args map[string]any, name string) error
 
 // parseNullableInt converts a raw nullable integer argument into an int or
 // nil. JSON null clears the field. Some MCP clients send null as the string
-// "null" (or ""), which is treated the same way. Whole numbers and integer
-// strings become the int value. Everything else (fractions, booleans,
-// objects, arrays, other strings) is an error rather than being coerced to
-// 0 or truncated, so an ID never reaches Paperless that the caller didn't
-// name.
+// "null", which is treated the same way. Whole numbers and integer strings
+// become the int value. Everything else (fractions, booleans, objects,
+// arrays, other strings) is an error rather than being coerced to 0 or
+// truncated, so an ID never reaches Paperless that the caller didn't name.
+// The empty string is an error as well, not null: it is more likely an
+// unset form field than a request to clear the field, and clearing is
+// destructive (document_update's archive_serial_number shares this path).
+// The accepted strings match the withNullableNumber schema pattern exactly.
 func parseNullableInt(name string, val any) (any, error) {
 	switch v := val.(type) {
 	case nil:
@@ -325,12 +327,12 @@ func parseNullableInt(name string, val any) (any, error) {
 	case int:
 		return v, nil
 	case string:
-		s := strings.TrimSpace(v)
-		if s == "" || strings.EqualFold(s, "null") {
+		if v == "null" {
 			return nil, nil
 		}
-		n, err := strconv.Atoi(s)
-		if err != nil {
+		// Atoi also takes a leading "+", which the schema pattern doesn't.
+		n, err := strconv.Atoi(v)
+		if err != nil || v[0] == '+' {
 			return nil, fmt.Errorf("%s must be an integer or null, got %q", name, v)
 		}
 		return n, nil
@@ -422,10 +424,12 @@ func withNumber(name string, opts ...mcp.PropertyOption) mcp.ToolOption {
 
 // withNullableNumber defines a tool parameter that accepts integer, string, or null.
 // Used for fields that can be cleared by sending null (e.g., correspondent, document_type).
+// Strings are integers or "null", the form some MCP clients send for JSON null;
+// the handler side is parseNullableInt.
 func withNullableNumber(name string, opts ...mcp.PropertyOption) mcp.ToolOption {
 	allOpts := append([]mcp.PropertyOption{func(schema map[string]any) {
 		schema["type"] = []string{"integer", "string", "null"}
-		schema["pattern"] = `^-?\d+$`
+		schema["pattern"] = `^(-?\d+|null)$`
 	}}, opts...)
 	return mcp.WithAny(name, allOpts...)
 }
