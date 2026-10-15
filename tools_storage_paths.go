@@ -28,7 +28,7 @@ func registerStoragePathTools(srv *server.MCPServer, client *Client) {
 			withNumber("id", mcp.Description("Storage path ID"), mcp.Required()),
 			withFullPerms(),
 		),
-		handleOwnedGetByID(client, "/api/storage_paths/%d/"),
+		handleGetByID(client, "/api/storage_paths/%d/", addFullPerms),
 	)
 
 	srv.AddTool(

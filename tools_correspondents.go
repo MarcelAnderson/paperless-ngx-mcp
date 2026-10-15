@@ -28,7 +28,7 @@ func registerCorrespondentTools(srv *server.MCPServer, client *Client) {
 			withNumber("id", mcp.Description("Correspondent ID"), mcp.Required()),
 			withFullPerms(),
 		),
-		handleOwnedGetByID(client, "/api/correspondents/%d/"),
+		handleGetByID(client, "/api/correspondents/%d/", addFullPerms),
 	)
 
 	srv.AddTool(

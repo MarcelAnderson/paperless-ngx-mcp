@@ -28,7 +28,7 @@ func registerDocumentTypeTools(srv *server.MCPServer, client *Client) {
 			withNumber("id", mcp.Description("Document type ID"), mcp.Required()),
 			withFullPerms(),
 		),
-		handleOwnedGetByID(client, "/api/document_types/%d/"),
+		handleGetByID(client, "/api/document_types/%d/", addFullPerms),
 	)
 
 	srv.AddTool(

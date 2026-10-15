@@ -217,7 +217,7 @@ func TestTagFullPermsFalseOmitted(t *testing.T) {
 	for range 2 {
 		assertNotError(t, callTool(t, handleTagList(client), map[string]any{"full_perms": false}))
 	}
-	assertNotError(t, callTool(t, handleOwnedGetByID(client, "/api/tags/%d/"), map[string]any{"id": float64(1), "full_perms": false}))
+	assertNotError(t, callTool(t, handleGetByID(client, "/api/tags/%d/", addFullPerms), map[string]any{"id": float64(1), "full_perms": false}))
 
 	if listQuery.Has("full_perms") || getQuery.Has("full_perms") {
 		t.Errorf("full_perms sent: list=%v get=%v", listQuery, getQuery)
@@ -241,7 +241,7 @@ func TestTagFullPerms(t *testing.T) {
 
 	client := testClientAndServer(t, rh)
 	assertNotError(t, callTool(t, handleTagList(client), map[string]any{"full_perms": true}))
-	assertNotError(t, callTool(t, handleOwnedGetByID(client, "/api/tags/%d/"), map[string]any{"id": float64(1), "full_perms": true}))
+	assertNotError(t, callTool(t, handleGetByID(client, "/api/tags/%d/", addFullPerms), map[string]any{"id": float64(1), "full_perms": true}))
 
 	if listQuery != "true" || getQuery != "true" {
 		t.Errorf("full_perms list=%q get=%q, want true/true", listQuery, getQuery)

@@ -29,7 +29,7 @@ func registerTagTools(srv *server.MCPServer, client *Client) {
 			withNumber("id", mcp.Description("Tag ID"), mcp.Required()),
 			withFullPerms(),
 		),
-		handleOwnedGetByID(client, "/api/tags/%d/"),
+		handleGetByID(client, "/api/tags/%d/", addFullPerms),
 	)
 
 	srv.AddTool(

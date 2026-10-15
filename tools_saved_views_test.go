@@ -128,8 +128,8 @@ func TestSavedViewFullPerms(t *testing.T) {
 	})
 
 	client := testClientAndServer(t, rh)
-	assertNotError(t, callTool(t, handleOwnedPaginatedList(client, "/api/saved_views/"), map[string]any{"full_perms": true}))
-	assertNotError(t, callTool(t, handleOwnedGetByID(client, "/api/saved_views/%d/"), map[string]any{"id": float64(1), "full_perms": true}))
+	assertNotError(t, callTool(t, handlePaginatedList(client, "/api/saved_views/", addFullPerms), map[string]any{"full_perms": true}))
+	assertNotError(t, callTool(t, handleGetByID(client, "/api/saved_views/%d/", addFullPerms), map[string]any{"id": float64(1), "full_perms": true}))
 
 	if listQuery != "true" || getQuery != "true" {
 		t.Errorf("full_perms list=%q get=%q, want true/true", listQuery, getQuery)

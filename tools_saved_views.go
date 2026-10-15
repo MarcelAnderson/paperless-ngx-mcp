@@ -26,7 +26,7 @@ func registerSavedViewTools(srv *server.MCPServer, client *Client) {
 			withNumber("page", mcp.Description("Page number (default: 1)")),
 			withNumber("page_size", mcp.Description("Results per page (default: 25)")),
 		),
-		handleOwnedPaginatedList(client, "/api/saved_views/"),
+		handlePaginatedList(client, "/api/saved_views/", addFullPerms),
 	)
 
 	srv.AddTool(
@@ -35,7 +35,7 @@ func registerSavedViewTools(srv *server.MCPServer, client *Client) {
 			withNumber("id", mcp.Description("Saved view ID"), mcp.Required()),
 			withFullPerms(),
 		),
-		handleOwnedGetByID(client, "/api/saved_views/%d/"),
+		handleGetByID(client, "/api/saved_views/%d/", addFullPerms),
 	)
 
 	srv.AddTool(

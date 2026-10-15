@@ -485,52 +485,37 @@ func stripAllIDs(v any) any {
 	return v
 }
 
-// handlePaginatedList returns a handler that GETs a paginated list endpoint.
-func handlePaginatedList(client *Client, path string) server.ToolHandlerFunc {
-	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		params := url.Values{}
-		addPaginationParams(params, request)
-		resp, err := client.Get(ctx, path, params)
-		return doRequestJSON(resp, err, "GET", path, stripAllIDs)
-	}
-}
+// paramHook adds tool-specific query parameters to a generic read handler,
+// e.g. addFullPerms for owned objects.
+type paramHook func(url.Values, mcp.CallToolRequest)
 
-// handleOwnedPaginatedList is like handlePaginatedList but forwards the
-// full_perms flag so the results include each object's permissions.
-func handleOwnedPaginatedList(client *Client, path string) server.ToolHandlerFunc {
+// handlePaginatedList returns a handler that GETs a paginated list endpoint.
+// hooks add tool-specific query parameters after the pagination ones.
+func handlePaginatedList(client *Client, path string, hooks ...paramHook) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		params := url.Values{}
 		addPaginationParams(params, request)
-		addFullPerms(params, request)
+		for _, hook := range hooks {
+			hook(params, request)
+		}
 		resp, err := client.Get(ctx, path, params)
 		return doRequestJSON(resp, err, "GET", path, stripAllIDs)
 	}
 }
 
 // handleGetByID returns a handler that GETs a resource by integer ID.
-// pathFmt must contain exactly one %d verb for the ID.
-func handleGetByID(client *Client, pathFmt string) server.ToolHandlerFunc {
-	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		id, errRes := getRequiredInt(request, "id")
-		if errRes != nil {
-			return errRes, nil
-		}
-		path := fmt.Sprintf(pathFmt, id)
-		resp, err := client.Get(ctx, path, nil)
-		return doRequest(resp, err, "GET", path)
-	}
-}
-
-// handleOwnedGetByID is like handleGetByID but forwards the full_perms flag
-// so the response includes the object's permissions.
-func handleOwnedGetByID(client *Client, pathFmt string) server.ToolHandlerFunc {
+// pathFmt must contain exactly one %d verb for the ID. hooks add
+// tool-specific query parameters.
+func handleGetByID(client *Client, pathFmt string, hooks ...paramHook) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		id, errRes := getRequiredInt(request, "id")
 		if errRes != nil {
 			return errRes, nil
 		}
 		params := url.Values{}
-		addFullPerms(params, request)
+		for _, hook := range hooks {
+			hook(params, request)
+		}
 		path := fmt.Sprintf(pathFmt, id)
 		resp, err := client.Get(ctx, path, params)
 		return doRequest(resp, err, "GET", path)

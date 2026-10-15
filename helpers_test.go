@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
@@ -587,5 +588,38 @@ func TestOwnershipRejectsNonIntegerOwner(t *testing.T) {
 				"object_type": "tags", "objects": "[1]", "operation": "set_permissions", "owner": owner,
 			}))
 		})
+	}
+}
+
+// Hooks let a tool add its own query parameters without a copy of the
+// generic handler; without hooks the request carries no query at all.
+func TestGenericReadHandlerHooks(t *testing.T) {
+	var listQuery, getQuery string
+	rh := newRouteHandler(t)
+	rh.Handle("GET", "/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		listQuery = r.URL.RawQuery
+		jsonHandler(t, 200, paginatedResponse([]any{}, 0))(w, r)
+	})
+	rh.Handle("GET", "/api/tags/1/", func(w http.ResponseWriter, r *http.Request) {
+		getQuery = r.URL.RawQuery
+		jsonHandler(t, 200, map[string]any{"id": 1})(w, r)
+	})
+	client := testClientAndServer(t, rh)
+	client.cache = nil
+
+	assertNotError(t, callTool(t, handleGetByID(client, "/api/tags/%d/"), map[string]any{"id": float64(1), "full_perms": true}))
+	if getQuery != "" {
+		t.Errorf("get without hooks sent query %q", getQuery)
+	}
+
+	hook := func(params url.Values, _ mcp.CallToolRequest) { params.Set("x", "1") }
+	assertNotError(t, callTool(t, handleGetByID(client, "/api/tags/%d/", addFullPerms, hook), map[string]any{"id": float64(1), "full_perms": true}))
+	if getQuery != "full_perms=true&x=1" {
+		t.Errorf("get query = %q, want full_perms=true&x=1", getQuery)
+	}
+
+	assertNotError(t, callTool(t, handlePaginatedList(client, "/api/tags/", addFullPerms), map[string]any{"page": float64(2), "full_perms": true}))
+	if listQuery != "full_perms=true&page=2" {
+		t.Errorf("list query = %q, want full_perms=true&page=2", listQuery)
 	}
 }
