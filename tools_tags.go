@@ -154,7 +154,7 @@ func handleTagUpdate(client *Client) server.ToolHandlerFunc {
 		if _, ok := args["is_insensitive"]; ok {
 			body["is_insensitive"] = request.GetBool("is_insensitive", false)
 		}
-		if err := setNullableInt(body, args, request, "parent"); err != nil {
+		if err := setNullableInt(body, args, "parent"); err != nil {
 			return errResult(err.Error()), nil
 		}
 

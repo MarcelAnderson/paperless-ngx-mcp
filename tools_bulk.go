@@ -159,7 +159,7 @@ func handleBulkEditObjects(client *Client) server.ToolHandlerFunc {
 				body[k] = v
 			}
 		}
-		if err := setNullableInt(body, request.GetArguments(), request, "owner"); err != nil {
+		if err := setNullableInt(body, request.GetArguments(), "owner"); err != nil {
 			return errResult(err.Error()), nil
 		}
 		if err := setJSONObjectField(body, request, "permissions"); err != nil {

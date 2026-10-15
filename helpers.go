@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -290,35 +291,52 @@ func getRequiredString(request mcp.CallToolRequest, name string) (string, *mcp.C
 }
 
 // setNullableInt sets a nullable integer field in a body map for PATCH requests.
-// If the argument is present and nil, sets the field to nil (clears it).
-// Some MCP clients send null as the string "null" (or ""), which is treated
-// the same way. Numbers and integer strings set the field to the int value;
-// any other string is an error rather than being coerced to 0.
-// If the argument is not present, does nothing.
-func setNullableInt(body map[string]any, args map[string]any, request mcp.CallToolRequest, name string) error {
+// If the argument is not present, does nothing; otherwise the value is
+// checked by parseNullableInt and an invalid one is returned as an error.
+func setNullableInt(body map[string]any, args map[string]any, name string) error {
 	val, ok := args[name]
 	if !ok {
 		return nil
 	}
-	if str, isStr := val.(string); isStr {
-		str = strings.TrimSpace(str)
-		if str == "" || strings.EqualFold(str, "null") {
-			body[name] = nil
-			return nil
-		}
-		n, err := strconv.Atoi(str)
-		if err != nil {
-			return fmt.Errorf("%s must be an integer or null, got %q", name, val)
-		}
-		body[name] = n
-		return nil
+	v, err := parseNullableInt(name, val)
+	if err != nil {
+		return err
 	}
-	if val == nil {
-		body[name] = nil
-	} else {
-		body[name] = int(request.GetFloat(name, 0))
-	}
+	body[name] = v
 	return nil
+}
+
+// parseNullableInt converts a raw nullable integer argument into an int or
+// nil. JSON null clears the field. Some MCP clients send null as the string
+// "null" (or ""), which is treated the same way. Whole numbers and integer
+// strings become the int value. Everything else (fractions, booleans,
+// objects, arrays, other strings) is an error rather than being coerced to
+// 0 or truncated, so an ID never reaches Paperless that the caller didn't
+// name.
+func parseNullableInt(name string, val any) (any, error) {
+	switch v := val.(type) {
+	case nil:
+		return nil, nil
+	case float64:
+		if v != math.Trunc(v) {
+			return nil, fmt.Errorf("%s must be an integer or null, got %v", name, v)
+		}
+		return int(v), nil
+	case int:
+		return v, nil
+	case string:
+		s := strings.TrimSpace(v)
+		if s == "" || strings.EqualFold(s, "null") {
+			return nil, nil
+		}
+		n, err := strconv.Atoi(s)
+		if err != nil {
+			return nil, fmt.Errorf("%s must be an integer or null, got %q", name, v)
+		}
+		return n, nil
+	default:
+		return nil, fmt.Errorf("%s must be an integer or null, got %v", name, v)
+	}
 }
 
 // setJSONField parses a JSON string parameter and sets it in a body map.
@@ -350,7 +368,7 @@ func withOwnership() mcp.ToolOption {
 // setOwnership copies owner (nullable) and set_permissions (JSON object)
 // from the request into body when present.
 func setOwnership(body map[string]any, request mcp.CallToolRequest) error {
-	if err := setNullableInt(body, request.GetArguments(), request, "owner"); err != nil {
+	if err := setNullableInt(body, request.GetArguments(), "owner"); err != nil {
 		return err
 	}
 	return setJSONObjectField(body, request, "set_permissions")

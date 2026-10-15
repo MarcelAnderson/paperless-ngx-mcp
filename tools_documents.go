@@ -244,7 +244,7 @@ func handleDocumentUpdate(client *Client) server.ToolHandlerFunc {
 		}
 
 		for _, name := range []string{"correspondent", "document_type", "storage_path", "archive_serial_number", "owner"} {
-			if err := setNullableInt(body, args, request, name); err != nil {
+			if err := setNullableInt(body, args, name); err != nil {
 				return errResult(err.Error()), nil
 			}
 		}

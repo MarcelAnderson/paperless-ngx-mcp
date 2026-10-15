@@ -511,6 +511,13 @@ func TestSetNullableInt(t *testing.T) {
 		{"number", float64(5), 5, false},
 		{"integer string", "7", 7, false},
 		{"non-numeric string", "abc", nil, true},
+		{"whole float", float64(7.0), 7, false},
+		{"int", 4, 4, false},
+		{"fraction", 7.9, nil, true},
+		{"fraction string", "7.9", nil, true},
+		{"bool", true, nil, true},
+		{"object", map[string]any{}, nil, true},
+		{"array", []any{float64(3)}, nil, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -518,7 +525,7 @@ func TestSetNullableInt(t *testing.T) {
 			req := mcp.CallToolRequest{}
 			req.Params.Arguments = args
 			body := map[string]any{}
-			err := setNullableInt(body, args, req, "owner")
+			err := setNullableInt(body, args, "owner")
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -537,10 +544,29 @@ func TestSetNullableInt(t *testing.T) {
 
 func TestSetNullableIntAbsent(t *testing.T) {
 	body := map[string]any{}
-	if err := setNullableInt(body, map[string]any{}, mcp.CallToolRequest{}, "owner"); err != nil {
+	if err := setNullableInt(body, map[string]any{}, "owner"); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := body["owner"]; ok {
 		t.Error("owner must stay absent")
+	}
+}
+
+// An owner that isn't a whole number must be refused before any request:
+// 0 is an invalid pk, and a truncated 7.9 would hand the object to user 7.
+func TestOwnershipRejectsNonIntegerOwner(t *testing.T) {
+	for name, owner := range map[string]any{
+		"fraction": 7.9,
+		"bool":     true,
+		"object":   map[string]any{},
+		"array":    []any{float64(3)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			client := testClientAndServer(t, newRouteHandler(t))
+			assertIsError(t, callTool(t, handleTagUpdate(client), map[string]any{"id": float64(1), "owner": owner}))
+			assertIsError(t, callTool(t, handleBulkEditObjects(client), map[string]any{
+				"object_type": "tags", "objects": "[1]", "operation": "set_permissions", "owner": owner,
+			}))
+		})
 	}
 }
