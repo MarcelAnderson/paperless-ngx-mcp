@@ -41,7 +41,7 @@ func registerTagTools(srv *server.MCPServer, client *Client) {
 			withNumber("matching_algorithm", mcp.Description("Auto-matching algorithm")),
 			mcp.WithString("match", mcp.Description("Match pattern")),
 			mcp.WithBoolean("is_insensitive", mcp.Description("Case-insensitive matching")),
-			withNumber("parent", mcp.Description("Parent tag ID for hierarchy")),
+			withNullableNumber("parent", mcp.Description("Parent tag ID for hierarchy (null = top-level tag)")),
 			withOwnership(),
 		),
 		handleTagCreate(client),
@@ -112,8 +112,8 @@ func handleTagCreate(client *Client) server.ToolHandlerFunc {
 		if _, ok := args["is_insensitive"]; ok {
 			body["is_insensitive"] = request.GetBool("is_insensitive", false)
 		}
-		if _, ok := args["parent"]; ok {
-			body["parent"] = int(request.GetFloat("parent", 0))
+		if err := setNullableInt(body, args, "parent"); err != nil {
+			return errResult(err.Error()), nil
 		}
 
 		if err := setOwnership(body, request); err != nil {

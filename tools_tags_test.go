@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+
+	"github.com/mark3labs/mcp-go/server"
 )
 
 func TestTagList(t *testing.T) {
@@ -119,6 +121,57 @@ func TestTagListWithNameFilter(t *testing.T) {
 
 	if capturedName != "invoice" {
 		t.Errorf("name filter = %q, want invoice", capturedName)
+	}
+}
+
+// tag_create used to send parent: 0 for a null parent, which Paperless
+// rejects with "Invalid pk 0"; it now shares tag_update's nullable handling.
+func TestTagCreateParent(t *testing.T) {
+	tests := []struct {
+		name    string
+		parent  any
+		want    any
+		wantErr bool
+	}{
+		{"json null", nil, nil, false},
+		{"string null", "null", nil, false},
+		{"number", float64(4), float64(4), false},
+		{"integer string", "4", float64(4), false},
+		{"fraction", 4.5, nil, true},
+		{"empty string", "", nil, true},
+		{"bool", true, nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var body map[string]any
+			rh := newRouteHandler(t)
+			if !tt.wantErr {
+				rh.Handle("POST", "/api/tags/", captureJSONBody(t, &body))
+			}
+			client := testClientAndServer(t, rh)
+			result := callTool(t, handleTagCreate(client), map[string]any{"name": "x", "parent": tt.parent})
+			if tt.wantErr {
+				assertIsError(t, result)
+				return
+			}
+			assertNotError(t, result)
+			if v, ok := body["parent"]; !ok || v != tt.want {
+				t.Errorf("parent = %#v (present %v), want %#v", v, ok, tt.want)
+			}
+		})
+	}
+}
+
+func TestTagCreateParentSchemaNullable(t *testing.T) {
+	srv := server.NewMCPServer("test", "1")
+	registerTagTools(srv, NewClient("http://unused", "unused"))
+	tool := srv.GetTool("tag_create")
+	if tool == nil {
+		t.Fatal("tag_create not registered")
+	}
+	prop := tool.Tool.InputSchema.Properties["parent"].(map[string]any)
+	if prop["pattern"] != `^(-?\d+|null)$` {
+		t.Errorf("parent pattern = %v, want nullable pattern", prop["pattern"])
 	}
 }
 
