@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -31,7 +32,7 @@ func registerBulkTools(srv *server.MCPServer, client *Client) {
 
 	srv.AddTool(
 		mcp.NewTool("bulk_edit_objects",
-			mcp.WithDescription("Bulk permissions/delete for tags, correspondents, document types, or storage paths. set_permissions requires owner and/or permissions. Fails as a whole (403) unless every selected object is owned by the token user or unowned."),
+			mcp.WithDescription("Bulk permissions/delete for tags, correspondents, document types, or storage paths. set_permissions requires owner and/or permissions; owner, permissions, merge and parameters only apply to set_permissions, and delete refuses them. Fails as a whole (403) unless every selected object is owned by the token user or unowned."),
 			mcp.WithString("object_type", mcp.Description("Object type: tags, correspondents, document_types, storage_paths"), mcp.Required()),
 			mcp.WithString("objects", mcp.Description("JSON array of object IDs"), mcp.Required()),
 			mcp.WithString("operation", mcp.Description("Operation: set_permissions, delete"), mcp.Required()),
@@ -118,6 +119,53 @@ func handleDocumentSelectionData(client *Client) server.ToolHandlerFunc {
 	}
 }
 
+// bulkObjectPermissionArgs are the bulk_edit_objects arguments that only
+// apply to set_permissions.
+var bulkObjectPermissionArgs = []string{"owner", "permissions", "merge", "parameters"}
+
+// setBulkObjectPermissions copies owner, permissions and merge for a
+// set_permissions call into body and rejects combinations that Paperless
+// would accept as a no-op.
+func setBulkObjectPermissions(body map[string]any, request mcp.CallToolRequest) error {
+	// Paperless reads owner, permissions and merge from the top level of the
+	// body and silently ignores anything nested, so flatten the legacy
+	// parameters object and let the dedicated arguments override it.
+	legacy, err := parseJSONObject("parameters", request.GetArguments()["parameters"])
+	if err != nil {
+		return err
+	}
+	if legacy != nil {
+		if err := setLegacyBulkObjectParameters(body, legacy); err != nil {
+			return err
+		}
+	}
+	if err := setNullableInt(body, request.GetArguments(), "owner"); err != nil {
+		return err
+	}
+	if err := setJSONObjectField(body, request, "permissions"); err != nil {
+		return err
+	}
+	if _, ok := request.GetArguments()["merge"]; ok {
+		body["merge"] = request.GetBool("merge", false)
+	}
+
+	// Without owner or permissions Paperless performs no change yet still
+	// answers OK, so reject the no-op instead of reporting success. With
+	// merge, Paperless also skips a null owner.
+	owner, hasOwner := body["owner"]
+	_, hasPerms := body["permissions"]
+	if hasOwner && owner == nil && body["merge"] == true {
+		if !hasPerms {
+			return errors.New("owner: null has no effect with merge: true; omit merge to remove the owner")
+		}
+		return errors.New("owner: null is ignored with merge: true; send it without merge in a separate call")
+	}
+	if !hasOwner && !hasPerms {
+		return errors.New("set_permissions requires owner and/or permissions")
+	}
+	return nil
+}
+
 // setLegacyBulkObjectParameters copies owner, permissions and merge from the
 // legacy parameters object into body. The values go through the same checks
 // as the dedicated arguments, so a string "null" or "true" can't reach
@@ -179,42 +227,17 @@ func handleBulkEditObjects(client *Client) server.ToolHandlerFunc {
 			return errResult("objects is required"), nil
 		}
 
-		// Paperless reads owner, permissions and merge from the top level of the
-		// body and silently ignores anything nested, so flatten the legacy
-		// parameters object and let the dedicated arguments override it.
-		if err := setJSONObjectField(body, request, "parameters"); err != nil {
-			return errResult(err.Error()), nil
-		}
-		if legacy, ok := body["parameters"].(map[string]any); ok {
-			delete(body, "parameters")
-			if err := setLegacyBulkObjectParameters(body, legacy); err != nil {
+		if operation == "set_permissions" {
+			if err := setBulkObjectPermissions(body, request); err != nil {
 				return errResult(err.Error()), nil
 			}
-		}
-		if err := setNullableInt(body, request.GetArguments(), "owner"); err != nil {
-			return errResult(err.Error()), nil
-		}
-		if err := setJSONObjectField(body, request, "permissions"); err != nil {
-			return errResult(err.Error()), nil
-		}
-		if _, ok := request.GetArguments()["merge"]; ok {
-			body["merge"] = request.GetBool("merge", false)
-		}
-
-		// Without owner or permissions Paperless performs no change yet still
-		// answers OK, so reject the no-op instead of reporting success. With
-		// merge, Paperless also skips a null owner.
-		if operation == "set_permissions" {
-			owner, hasOwner := body["owner"]
-			_, hasPerms := body["permissions"]
-			if hasOwner && owner == nil && body["merge"] == true {
-				if !hasPerms {
-					return errResult("owner: null has no effect with merge: true; omit merge to remove the owner"), nil
+		} else {
+			// Paperless ignores these for any other operation, so a delete with
+			// owner or permissions would run and report success without them.
+			for _, k := range bulkObjectPermissionArgs {
+				if _, ok := request.GetArguments()[k]; ok {
+					return errResult(fmt.Sprintf("owner, permissions, merge and parameters only apply to set_permissions, not %s", operation)), nil
 				}
-				return errResult("owner: null is ignored with merge: true; send it without merge in a separate call"), nil
-			}
-			if !hasOwner && !hasPerms {
-				return errResult("set_permissions requires owner and/or permissions"), nil
 			}
 		}
 

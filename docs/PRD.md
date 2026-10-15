@@ -553,7 +553,7 @@ The matching list and get tools accept `full_perms: true`, which passes `full_pe
 | merge | boolean | no | `set_permissions`: merge with existing permissions and only set `owner` on unowned objects; cannot be combined with `owner: null` |
 | parameters | string | no | Deprecated JSON object with `owner`/`permissions`/`merge`; its keys are sent at the top level |
 
-Paperless reads `owner`, `permissions`, and `merge` from the top level of the request body and ignores nested fields while still answering `OK`. The tool sends them at the top level, rejects unknown keys in `parameters`, and rejects `set_permissions` without `owner` or `permissions`, as well as `owner: null` together with `merge: true` (Paperless skips a null owner when merging), since those would be silent no-ops.
+Paperless reads `owner`, `permissions`, and `merge` from the top level of the request body and ignores nested fields while still answering `OK`. The tool sends them at the top level, rejects unknown keys in `parameters`, and rejects `set_permissions` without `owner` or `permissions`, as well as `owner: null` together with `merge: true` (Paperless skips a null owner when merging), since those would be silent no-ops. For `delete`, `owner`, `permissions`, `merge`, and `parameters` are rejected rather than ignored, since Paperless would run the delete and report success without them.
 
 #### System
 

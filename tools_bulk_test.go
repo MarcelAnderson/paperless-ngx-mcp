@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -82,6 +83,33 @@ func TestBulkEditObjects(t *testing.T) {
 		"operation":   "delete",
 	})
 	assertNotError(t, result)
+}
+
+// Paperless ignores owner, permissions and merge for delete, so the tool
+// refuses them instead of deleting and reporting success. A null value is
+// refused too: the caller may have meant set_permissions.
+func TestBulkEditObjectsDeleteRejectsPermissionArgs(t *testing.T) {
+	for name, extra := range map[string]map[string]any{
+		"owner":            {"owner": float64(3)},
+		"null owner":       {"owner": nil},
+		"permissions":      {"permissions": `{"view":{"groups":[2]}}`},
+		"merge":            {"merge": false},
+		"parameters":       {"parameters": `{"owner": null}`},
+		"stray parameters": {"parameters": `{"foo": 1}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			client := testClientAndServer(t, newRouteHandler(t))
+			args := map[string]any{"object_type": "tags", "objects": "[1]", "operation": "delete"}
+			for k, v := range extra {
+				args[k] = v
+			}
+			result := callTool(t, handleBulkEditObjects(client), args)
+			assertIsError(t, result)
+			if text := resultText(t, result); !strings.Contains(text, "only apply to set_permissions") {
+				t.Errorf("error = %q, want the set_permissions hint", text)
+			}
+		})
+	}
 }
 
 func TestBulkEditObjectsInvalidatesCache(t *testing.T) {
