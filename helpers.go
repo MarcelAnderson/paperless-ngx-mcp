@@ -422,6 +422,16 @@ func withFullPerms() mcp.ToolOption {
 	return mcp.WithBoolean("full_perms", mcp.Description("Include the permissions field (view/change users and groups). Replaces user_can_change in the response."))
 }
 
+// addFullPerms sets full_perms=true when the caller asked for it and leaves
+// the parameter out otherwise. Paperless-ngx 2.16 passes the raw query value
+// on, so the non-empty string "false" counts as true there; and any query
+// parameter bypasses the metadata cache in Client.Get.
+func addFullPerms(params url.Values, request mcp.CallToolRequest) {
+	if request.GetBool("full_perms", false) {
+		params.Set("full_perms", "true")
+	}
+}
+
 // withNumber defines a tool parameter that accepts both integer and string values.
 // MCP clients may send numbers as strings; the handler uses GetFloat/GetInt
 // which handle coercion automatically. Strings are constrained to integer format
@@ -491,7 +501,7 @@ func handleOwnedPaginatedList(client *Client, path string) server.ToolHandlerFun
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		params := url.Values{}
 		addPaginationParams(params, request)
-		addBoolParam(params, request, "full_perms", "full_perms")
+		addFullPerms(params, request)
 		resp, err := client.Get(ctx, path, params)
 		return doRequestJSON(resp, err, "GET", path, stripAllIDs)
 	}
@@ -520,7 +530,7 @@ func handleOwnedGetByID(client *Client, pathFmt string) server.ToolHandlerFunc {
 			return errRes, nil
 		}
 		params := url.Values{}
-		addBoolParam(params, request, "full_perms", "full_perms")
+		addFullPerms(params, request)
 		path := fmt.Sprintf(pathFmt, id)
 		resp, err := client.Get(ctx, path, params)
 		return doRequest(resp, err, "GET", path)

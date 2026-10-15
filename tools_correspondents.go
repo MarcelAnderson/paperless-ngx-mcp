@@ -69,7 +69,7 @@ func handleCorrespondentList(client *Client) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		params := url.Values{}
 		addPaginationParams(params, request)
-		addBoolParam(params, request, "full_perms", "full_perms")
+		addFullPerms(params, request)
 		addStringParam(params, request, "name", "name__icontains")
 		addStringParam(params, request, "ordering", "ordering")
 

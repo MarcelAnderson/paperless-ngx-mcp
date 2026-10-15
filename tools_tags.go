@@ -76,7 +76,7 @@ func handleTagList(client *Client) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		params := url.Values{}
 		addPaginationParams(params, request)
-		addBoolParam(params, request, "full_perms", "full_perms")
+		addFullPerms(params, request)
 		addStringParam(params, request, "name", "name__icontains")
 		addBoolParam(params, request, "is_root", "is_root")
 		addStringParam(params, request, "ordering", "ordering")

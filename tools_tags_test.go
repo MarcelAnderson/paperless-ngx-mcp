@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"testing"
 )
 
@@ -141,6 +142,36 @@ func TestTagCreateRejectsNonObjectPermissions(t *testing.T) {
 		"set_permissions": `[2]`,
 	})
 	assertIsError(t, result)
+}
+
+// full_perms: false must not be sent: Paperless-ngx 2.16 reads the string
+// "false" as true, and a query parameter would bypass the list cache.
+func TestTagFullPermsFalseOmitted(t *testing.T) {
+	var listRequests int
+	var listQuery, getQuery url.Values
+	rh := newRouteHandler(t)
+	rh.Handle("GET", "/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		listRequests++
+		listQuery = r.URL.Query()
+		jsonHandler(t, 200, paginatedResponse([]any{}, 0))(w, r)
+	})
+	rh.Handle("GET", "/api/tags/1/", func(w http.ResponseWriter, r *http.Request) {
+		getQuery = r.URL.Query()
+		jsonHandler(t, 200, map[string]any{"id": 1})(w, r)
+	})
+
+	client := testClientAndServer(t, rh)
+	for range 2 {
+		assertNotError(t, callTool(t, handleTagList(client), map[string]any{"full_perms": false}))
+	}
+	assertNotError(t, callTool(t, handleOwnedGetByID(client, "/api/tags/%d/"), map[string]any{"id": float64(1), "full_perms": false}))
+
+	if listQuery.Has("full_perms") || getQuery.Has("full_perms") {
+		t.Errorf("full_perms sent: list=%v get=%v", listQuery, getQuery)
+	}
+	if listRequests != 1 {
+		t.Errorf("list requests = %d, want 1 (second call served from cache)", listRequests)
+	}
 }
 
 func TestTagFullPerms(t *testing.T) {
